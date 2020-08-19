@@ -1,5 +1,6 @@
 from base_am.metodo import MetodoAprendizadoDeMaquina
 import pandas as pd
+import numpy as np
 from .preprocessamento_atributos_competicao import gerar_atributos_ator, gerar_atributos_resumo, gerar_atributos_escritores
 from base_am.resultado import Resultado
 from typing import Union, List
@@ -72,20 +73,16 @@ class MetodoCompeticao(MetodoAprendizadoDeMaquina):
 
     def eval_escritores(self, df_treino:pd.DataFrame, df_data_to_predict:pd.DataFrame, col_classe:str,type, seed:int=1):
         #separação da classe
-        x_treino, x_to_predict = self.obtem_x(df_treino, df_data_to_predict, col_classe)
-        y_treino, y_to_predict = self.obtem_y(df_treino, df_data_to_predict, col_classe)
+        df_treino_cut = df_treino[df_treino[type].notna()]
+        df_data_to_predict_cut = df_data_to_predict[df_data_to_predict[type].notna()]
+
+        x_treino, x_to_predict = self.obtem_x(df_treino_cut, df_data_to_predict_cut, col_classe)
+        y_treino, y_to_predict = self.obtem_y(df_treino_cut, df_data_to_predict_cut, col_classe)
 
         #geração dos atributos por meio do df_treino e df_data_to_predict
         df_treino_ator, df_to_predict_ator = gerar_atributos_escritores(x_treino, x_to_predict, type)
 
-        if(len(df_treino_ator) < len(df_treino)):
-            df_treino_ator = df_treino_ator\
-                .merge(df_treino['id'],on='id', how='outer')\
-                .fillna(0)
-        if(len(df_to_predict_ator) < len(df_data_to_predict)):
-            df_to_predict_ator = df_to_predict_ator\
-                .merge(df_data_to_predict['id'],on='id', how='outer')\
-                .fillna(0)
+
         #elimina o ids dos elementos (não será necessário)
         arr_df_to_remove_id = [df_treino_ator, df_to_predict_ator]
         for df_data in arr_df_to_remove_id:
@@ -98,7 +95,19 @@ class MetodoCompeticao(MetodoAprendizadoDeMaquina):
         arr_predict = self.ml_method.predict(df_to_predict_ator)
         #if y_to_predict:
         #   print(classification_report(y_to_predict, arr_predict))
-        return y_to_predict, arr_predict
+        if(len(arr_predict) < len(df_data_to_predict)):
+            aux = np.array(df_data_to_predict[type].fillna(0).tolist())
+            cursor = 0
+            for iter in range(len(aux)):
+                if(aux[iter] == '0'):
+                    aux[iter] = -1
+                else:
+                    aux[iter] = arr_predict[cursor]
+                    cursor += 1
+            arr_predict = aux
+
+
+        return y_to_predict, arr_predict.astype('int64')
 
     def eval_bow(self, df_treino:pd.DataFrame, df_data_to_predict:pd.DataFrame, col_classe:str, seed:int=1):
         #separação da classe 
@@ -119,7 +128,7 @@ class MetodoCompeticao(MetodoAprendizadoDeMaquina):
         #if y_to_predict:
         #   print(classification_report(y_to_predict, arr_predict))
         return y_to_predict, arr_predict
-    def combine_predictions(self, arr_predictions_1:List[int], arr_predictions_2:List[int]) -> List[int]:
+    def combine_predictions(self, arr_predictions) -> List[int]:
         #realiza a predicao final
         #.. isso é apenas um exemplo de combinação, sem nenhuma justificativa do por que optei por isso
         #... Porém, você pode analisar os resultados de cada representação independentemente e pensar
@@ -127,12 +136,18 @@ class MetodoCompeticao(MetodoAprendizadoDeMaquina):
         #sinta-se livre de mudar também a assinatura desse método - caso queira combinar 3 (metodos e/ou representações)
 
         y_final_predictions = []
-        for i,pred in enumerate(arr_predictions_1):
-            if self.dic_int_to_nom_classe[pred] == 'Comedy':
-                y_final_predictions.append(pred)
-            else: 
-                y_final_predictions.append(arr_predictions_2[i])
-        return y_final_predictions
+        num_array = []
+        for iter in range(len(arr_predictions[0])):
+            soma = 0
+            num_array.append(0)
+            for posx in range(len(arr_predictions)):
+                if(arr_predictions[posx][iter] >= 0 ):
+                    soma = soma + arr_predictions[posx][iter] +.1
+                    num_array[iter]+= 1
+
+            y_final_predictions.append(soma)
+
+        return np.around(np.true_divide(y_final_predictions,num_array)).astype('int64')
 
     def eval(self, df_treino:pd.DataFrame, df_data_to_predict:pd.DataFrame, col_classe:str, seed:int=1):
         
